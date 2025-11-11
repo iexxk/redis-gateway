@@ -1,0 +1,12 @@
+ports:
+  - port: 16379
+    type: sentinel
+    masterName: mymaster
+    sentinels:
+      - "10.0.0.11:26379"
+      - "10.0.0.12:26379"
+      - "10.0.0.13:26379"
+
+  - type: standalone
+    host: "10.0.0.21"
+    port: 6379
