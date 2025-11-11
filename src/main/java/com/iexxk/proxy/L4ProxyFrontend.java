@@ -1,20 +1,17 @@
 package com.iexxk.proxy;
 
-import com.iexxk.upstream.HostPort;
 import com.iexxk.upstream.Upstream;
-import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.channel.ChannelInitializer;
-import io.netty.channel.socket.SocketChannel;
-import io.netty.channel.socket.nio.NioSocketChannel;
 
+/**
+ * TCP 层透传客户端数据到 Redis
+ */
 public class L4ProxyFrontend extends ChannelInboundHandlerAdapter {
 
     private final Upstream upstream;
-    private Channel backend;
-    private Channel client;
+    private Channel backendChannel;
 
     public L4ProxyFrontend(Upstream upstream) {
         this.upstream = upstream;
@@ -22,29 +19,22 @@ public class L4ProxyFrontend extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelActive(ChannelHandlerContext ctx) {
-        this.client = ctx.channel();
-
-        HostPort master = upstream.getCurrentMaster();
-
-        Bootstrap bs = new Bootstrap();
-        bs.group(client.eventLoop())
-                .channel(NioSocketChannel.class)
-                .handler(new ChannelInitializer<SocketChannel>() {
-                    protected void initChannel(SocketChannel ch) {
-                        ch.pipeline().addLast(new L4ProxyBackend(client));
-                    }
-                });
-
-        backend = bs.connect(master.host, master.port).syncUninterruptibly().channel();
+        // 当客户端连接时，建立到后端 Redis 的连接
+        StatefullRedisProxyBackend backendHandler = new StatefullRedisProxyBackend(ctx, upstream);
+        backendChannel = backendHandler.getBackendChannel();
     }
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
-        backend.writeAndFlush(msg);
+        if (backendChannel != null && backendChannel.isActive()) {
+            // 直接写给后端 Redis
+            backendChannel.writeAndFlush(msg);
+        }
     }
 
     @Override
-    public void channelInactive(ChannelHandlerContext ctx) {
-        if (backend != null) backend.close();
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+        cause.printStackTrace();
+        ctx.close();
     }
 }
